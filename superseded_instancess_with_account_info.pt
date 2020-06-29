@@ -372,7 +372,7 @@ script "js_merge_instance_data", type: "javascript" do
               new_sum: instance.new_sum,
               service: instance.service,
               vendor: instance.vendor,
-              vendor_account: instance.vendor_account
+              vendor_account: instance.vendor_account,
               vendor_account_name: instance.vendor_account_name,
               usage_amount: instance.usage_amount,
               region: instance.region,
