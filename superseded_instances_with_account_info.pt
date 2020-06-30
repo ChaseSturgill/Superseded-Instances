@@ -1,7 +1,7 @@
 name "Superseded Instances"
 rs_pt_ver 20180301
 type "policy"
-short_description "This Policy Template is used to automatically resize instances based on user-defined standards. \n See the [README](https://github.com/rightscale/policy_templates/tree/master/cost/superseded_instance) and [docs.rightscale.com/policies](http://docs.rightscale.com/policies/) to learn more."
+short_description "This Policy Template detects possible instance upgrades and shows potential monthly savings. \n See the [README](https://github.com/rightscale/policy_templates/tree/master/cost/superseded_instance) and [docs.rightscale.com/policies](http://docs.rightscale.com/policies/) to learn more."
 long_description ""
 category "Cost"
 severity "low"
@@ -33,17 +33,9 @@ parameter "param_billing_centers" do
   min_length 1
 end
 
-parameter "param_threshold" do
-  label "Minimum Instance Savings Threshold"
-  description "The recommended action for some recommendations may require an instance relaunch. Specify the minimum monthly savings value required for a recommendation of this nature to be issued, on a per instance basis. Note: this setting applies to multiple recommendations. Example: 100.00"
-  type "number"
-  default 10
-  min_value 1
-end
-
 parameter "param_minimum_savings_threshold" do
   label "Minimum Savings Threshold"
-  description "Specify the minimum monthly savings value required for a recommendation to be issued, on a per resource basis. Note: this setting applies to all recommendations. Example: 1.00"
+  description "Specify the minimum monthly savings value required for a recommendation to be issued, on a per instance basis. Note: this setting applies to all recommendations. Example: 1.00"
   type "number"
   default 1
 end
@@ -252,12 +244,6 @@ script "js_format_costs", type: "javascript" do
     var new_bc_cost_objs = _.reject(new_bc_costs, function(new_bc_cost){ return new_bc_cost.id != bc_id });
     _.each(new_bc_cost_objs, function(new_bc_cost_obj){
       var billing_center = _.reject(ds_billing_centers, function(bc){ return bc.id != new_bc_cost_obj.id })[0];
-      if (new_bc_cost_obj.vendor == "AWS" ) {
-        var account = _.reject(ds_cloud_vendor_accounts, function(ds_cloud_vendor_account){ return ds_cloud_vendor_account.id != new_bc_cost_obj.vendor_account_name });
-        var vendor_account_name = account[0].name
-      } else {
-        var vendor_account_name = new_bc_cost_obj.vendor_account_name
-      }
       cost = new_bc_cost_obj.cost_amortized_unblended_adj
       run_rate = cost / monthcomplete
       if (new_bc_cost_obj.cost_amortized_unblended_adj != 0){
@@ -382,8 +368,8 @@ script "js_merge_instance_data", type: "javascript" do
               timestamp: instance.timestamp,
               run_rate: instance.run_rate,
               run_rate_for_calc: instance.run_rate_for_calc,
-              vpc_incompatible_move: vpc_incompatible_move,
-              ena_incompatible: ena_incompatible,
+              vpc_incompatible_move: vpc_incompatible_move.toString(),
+              ena_incompatible: ena_incompatible.toString(),
               warn: warn,
               total: instance.total
             }
@@ -412,19 +398,41 @@ end
 policy "pol_aws_superseded_instance" do
   validate_each $ds_combined_instance_data do
     summary_template "{{ rs_project_name }} (Account ID: {{ rs_project_id }}): {{ len data }} possible superseded instances"
-    detail_template <<-EOS
-# Superseded Instances
-
-| Resource UID | Name | Cloud Account ID | Cloud Account Name | Current Instance Type | Region | New Instance Type | VPC Required | ENA Required | Monthly Estimated Cost |
-| ------------ | ---- | ---------------- | ------------------ | --------------------- | ------ | ----------------- | ------------ | ------------ | ---------------------- |
-{{ range data -}}
-| {{ if .warn }}**_{{ end -}}{{ .resource_id }}{{ if .warn }}_**{{ end -}} | {{ .name }} | {{.vendor_account}} | {{.vendor_account_name}} | {{.instance_type}} | {{.region}} | {{.new_instance_type}} | {{ if .vpc_incompatible_move }} **_TRUE_** {{else}} false {{end}} |  {{ if .ena_incompatible }} **_TRUE_** {{else}} false {{end}} | {{.run_rate}} |
-{{ end -}}
-
-___
-###### Policy Applied in Account: {{ rs_project_name }} (Account ID: {{ rs_project_id }}) within Org: {{ rs_org_name }} (Org ID: {{ rs_org_id }})
-EOS
-    check logic_or(lt(to_n(val(item,"run_rate")),$param_threshold), lt(to_n(val(item,"run_rate")),$param_minimum_savings_threshold))
+    export do
+        resource_level true
+        field "id" do
+            label "Resource ID"
+            path "resource_id"
+        end
+        field "name" do
+            label "Billing Center"
+        end 
+        field "vendor_account" do
+            label "Cloud Account ID"
+        end 
+        field "vendor_account_name" do
+            label "Cloud Account Name"
+        end 
+        field "instance_type" do
+            label "Current Instance Type"
+        end 
+        field "region" do
+            label "Region"
+        end 
+        field "new_instance_type" do
+            label "New Instance Type"
+        end 
+        field "run_rate" do
+            label "Monthly Estimated Cost"
+        end 
+        field "vpc_incompatible_move" do
+            label "VPC Required"
+        end 
+        field "ena_incompatible" do
+            label "ENA Required"
+        end 
+    end 
+    check lt(to_n(val(item,"run_rate")),$param_minimum_savings_threshold)
     escalate $report_instances
   end
 end
